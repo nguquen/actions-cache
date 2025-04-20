@@ -290,10 +290,6 @@ export async function saveCache(standalone: boolean) {
         leavePartsOnError: false,
       });
 
-      upload.on("httpUploadProgress", (progress) => {
-        core.info("Uploading progress: " + JSON.stringify(progress));
-      });
-
       await upload.done();
 
       core.info("Cache saved to s3 successfully");
