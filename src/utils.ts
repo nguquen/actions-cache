@@ -2,14 +2,17 @@ import { CompressionMethod } from "@actions/cache/lib/internal/constants";
 import * as utils from "@actions/cache/lib/internal/cacheUtils";
 import * as core from "@actions/core";
 import * as minio from "minio";
+import { S3Client } from "@aws-sdk/client-s3";
+import { Upload } from "@aws-sdk/lib-storage";
+import * as fs from "fs";
 import { State } from "./state";
 import path from "path";
-import {createTar, listTar} from "@actions/cache/lib/internal/tar";
+import { createTar, listTar } from "@actions/cache/lib/internal/tar";
 import * as cache from "@actions/cache";
 
 export function isGhes(): boolean {
   const ghUrl = new URL(
-    process.env["GITHUB_SERVER_URL"] || "https://github.com"
+    process.env["GITHUB_SERVER_URL"] || "https://github.com",
   );
   return ghUrl.hostname.toUpperCase() !== "GITHUB.COM";
 }
@@ -17,7 +20,7 @@ export function isGhes(): boolean {
 export function getInput(key: string, envKey?: string) {
   let result;
   if (envKey) {
-    result = process.env[envKey]
+    result = process.env[envKey];
   }
   if (result === undefined) {
     result = core.getInput(key);
@@ -47,16 +50,44 @@ export function newMinio({
   });
 }
 
+export function newS3Client({
+  accessKey,
+  secretKey,
+  region,
+}: {
+  accessKey?: string;
+  secretKey?: string;
+  sessionToken?: string;
+  region?: string;
+} = {}) {
+  const useSSL = !getInputAsBoolean("insecure");
+  const port = getInputAsInt("port") ?? (useSSL ? 443 : 80);
+  const endpoint = useSSL
+    ? "https://"
+    : "http://" + core.getInput("endpoint") + ":" + port;
+
+  return new S3Client({
+    region: region ?? getInput("region", "AWS_REGION"),
+    endpoint: endpoint,
+    forcePathStyle: true,
+    credentials: {
+      accessKeyId: accessKey ?? getInput("accessKey", "AWS_ACCESS_KEY_ID"),
+      secretAccessKey:
+        secretKey ?? getInput("secretKey", "AWS_SECRET_ACCESS_KEY"),
+    },
+  });
+}
+
 export function getInputAsBoolean(
   name: string,
-  options?: core.InputOptions
+  options?: core.InputOptions,
 ): boolean {
   return core.getInput(name, options) === "true";
 }
 
 export function getInputAsArray(
   name: string,
-  options?: core.InputOptions
+  options?: core.InputOptions,
 ): string[] {
   return core
     .getInput(name, options)
@@ -67,7 +98,7 @@ export function getInputAsArray(
 
 export function getInputAsInt(
   name: string,
-  options?: core.InputOptions
+  options?: core.InputOptions,
 ): number | undefined {
   const value = parseInt(core.getInput(name, options));
   if (isNaN(value) || value < 0) {
@@ -94,7 +125,7 @@ export function setCacheHitOutput(isCacheHit: boolean): void {
 }
 
 export function setCacheSizeOutput(cacheSize: number): void {
-  core.setOutput("cache-size", cacheSize.toString())
+  core.setOutput("cache-size", cacheSize.toString());
 }
 
 type FindObjectResult = {
@@ -107,7 +138,7 @@ export async function findObject(
   bucket: string,
   key: string,
   restoreKeys: string[],
-  compressionMethod: CompressionMethod
+  compressionMethod: CompressionMethod,
 ): Promise<FindObjectResult> {
   core.debug("Key: " + JSON.stringify(key));
   core.debug("Restore keys: " + JSON.stringify(restoreKeys));
@@ -131,7 +162,7 @@ export async function findObject(
       continue;
     }
     const sorted = objects.sort(
-      (a, b) => b.lastModified.getTime() - a.lastModified.getTime()
+      (a, b) => b.lastModified.getTime() - a.lastModified.getTime(),
     );
     const result = { item: sorted[0], matchingKey: restoreKey };
     core.debug(`Using latest ${JSON.stringify(result)}`);
@@ -143,7 +174,7 @@ export async function findObject(
 export function listObjects(
   mc: minio.Client,
   bucket: string,
-  prefix: string
+  prefix: string,
 ): Promise<minio.BucketItem[]> {
   return new Promise((resolve, reject) => {
     const h = mc.listObjectsV2(bucket, prefix, true);
@@ -160,12 +191,12 @@ export function listObjects(
     h.on("error", (e) => {
       resolved = true;
       reject(e);
-      clearTimeout(timeout)
+      clearTimeout(timeout);
     });
     h.on("end", () => {
       resolved = true;
       resolve(r);
-      clearTimeout(timeout)
+      clearTimeout(timeout);
     });
   });
 }
@@ -183,7 +214,7 @@ export function isExactKeyMatch(): boolean {
   const inputKey = core.getState(State.PrimaryKey);
   const result = getMatchedKey() === inputKey;
   core.debug(
-    `isExactKeyMatch: matchedKey=${matchedKey} inputKey=${inputKey}, result=${result}`
+    `isExactKeyMatch: matchedKey=${matchedKey} inputKey=${inputKey}, result=${result}`,
   );
   return result;
 }
@@ -197,17 +228,27 @@ export async function saveCache(standalone: boolean) {
 
     const bucket = core.getInput("bucket", { required: true });
     // Inputs are re-evaluted before the post action, so we want the original key
-    const key = standalone ? core.getInput("key", { required: true }) : core.getState(State.PrimaryKey);
+    const key = standalone
+      ? core.getInput("key", { required: true })
+      : core.getState(State.PrimaryKey);
     const useFallback = getInputAsBoolean("use-fallback");
     const paths = getInputAsArray("path");
 
     try {
-      const mc = newMinio({
+      const s3Client = newS3Client({
         // Inputs are re-evaluted before the post action, so we want the original keys & tokens
-        accessKey: standalone ? getInput("accessKey", "AWS_ACCESS_KEY_ID") : core.getState(State.AccessKey),
-        secretKey: standalone ? getInput("secretKey", "AWS_SECRET_ACCESS_KEY") : core.getState(State.SecretKey),
-        sessionToken: standalone ? getInput("sessionToken", "AWS_SESSION_TOKEN") : core.getState(State.SessionToken),
-        region: standalone ? getInput("region", "AWS_REGION") : core.getState(State.Region),
+        accessKey: standalone
+          ? getInput("accessKey", "AWS_ACCESS_KEY_ID")
+          : core.getState(State.AccessKey),
+        secretKey: standalone
+          ? getInput("secretKey", "AWS_SECRET_ACCESS_KEY")
+          : core.getState(State.SecretKey),
+        sessionToken: standalone
+          ? getInput("sessionToken", "AWS_SESSION_TOKEN")
+          : core.getState(State.SessionToken),
+        region: standalone
+          ? getInput("region", "AWS_REGION")
+          : core.getState(State.Region),
       });
 
       const compressionMethod = await utils.getCompressionMethod();
@@ -229,7 +270,25 @@ export async function saveCache(standalone: boolean) {
       const object = path.join(key, cacheFileName);
 
       core.info(`Uploading tar to s3. Bucket: ${bucket}, Object: ${object}`);
-      await mc.fPutObject(bucket, object, archivePath, {});
+
+      const upload = new Upload({
+        client: s3Client,
+        params: {
+          Bucket: bucket,
+          Key: object,
+          Body: fs.createReadStream(archivePath),
+        },
+        queueSize: 16,
+        partSize: 1024 * 1024 * 5,
+        leavePartsOnError: false,
+      });
+
+      upload.on("httpUploadProgress", (progress) => {
+        core.info("Uploading progress: " + JSON.stringify(progress));
+      });
+
+      await upload.done();
+
       core.info("Cache saved to s3 successfully");
     } catch (e) {
       if (useFallback) {
