@@ -136,6 +136,7 @@ type FindObjectResult = {
 export async function findObject(
   mc: minio.Client,
   bucket: string,
+  root: string,
   key: string,
   restoreKeys: string[],
   compressionMethod: CompressionMethod,
@@ -144,7 +145,7 @@ export async function findObject(
   core.debug("Restore keys: " + JSON.stringify(restoreKeys));
 
   core.debug(`Finding exact macth for: ${key}`);
-  const exactMatch = await listObjects(mc, bucket, key);
+  const exactMatch = await listObjects(mc, bucket, root, key);
   core.debug(`Found ${JSON.stringify(exactMatch, null, 2)}`);
   if (exactMatch.length) {
     const result = { item: exactMatch[0], matchingKey: key };
@@ -155,7 +156,7 @@ export async function findObject(
   for (const restoreKey of restoreKeys) {
     const fn = utils.getCacheFileName(compressionMethod);
     core.debug(`Finding object with prefix: ${restoreKey}`);
-    let objects = await listObjects(mc, bucket, restoreKey);
+    let objects = await listObjects(mc, bucket, root, restoreKey);
     objects = objects.filter((o) => o.name.includes(fn));
     core.debug(`Found ${JSON.stringify(objects, null, 2)}`);
     if (objects.length < 1) {
@@ -174,8 +175,10 @@ export async function findObject(
 export function listObjects(
   mc: minio.Client,
   bucket: string,
-  prefix: string,
+  root: string,
+  key: string,
 ): Promise<minio.BucketItem[]> {
+  let prefix = root ? `${root}/${key}` : key;
   return new Promise((resolve, reject) => {
     const h = mc.listObjectsV2(bucket, prefix, true);
     const r: minio.BucketItem[] = [];
@@ -227,6 +230,7 @@ export async function saveCache(standalone: boolean) {
     }
 
     const bucket = core.getInput("bucket", { required: true });
+    const root = core.getInput("root");
     // Inputs are re-evaluted before the post action, so we want the original key
     const key = standalone
       ? core.getInput("key", { required: true })
@@ -269,13 +273,16 @@ export async function saveCache(standalone: boolean) {
 
       const object = path.join(key, cacheFileName);
 
-      core.info(`Uploading tar to s3. Bucket: ${bucket}, Object: ${object}`);
+      core.info(
+        `Uploading tar to s3. Bucket: ${bucket}, root: ${root}, Object: ${object}`,
+      );
 
+      let objectPath = root ? `${root}/${object}` : object;
       const upload = new Upload({
         client: s3Client,
         params: {
           Bucket: bucket,
-          Key: object,
+          Key: objectPath,
           Body: fs.createReadStream(archivePath),
         },
         queueSize: 16,
