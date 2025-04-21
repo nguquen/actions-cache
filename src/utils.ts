@@ -61,10 +61,12 @@ export function newS3Client({
   region?: string;
 } = {}) {
   const useSSL = !getInputAsBoolean("insecure");
-  const port = getInputAsInt("port") ?? (useSSL ? 443 : 80);
-  const endpoint = useSSL
-    ? "https://"
-    : "http://" + core.getInput("endpoint") + ":" + port;
+  let schema = useSSL ? "https://" : "http://";
+  let endpoint = schema + core.getInput("endpoint");
+  const port = getInputAsInt("port");
+  if (port) {
+    endpoint += ":" + port;
+  }
 
   return new S3Client({
     region: region ?? getInput("region", "AWS_REGION"),
