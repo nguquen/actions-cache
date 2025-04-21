@@ -65,10 +65,9 @@ async function restoreCache() {
       core.debug("found cache object");
       saveMatchedKey(matchingKey);
       core.info(
-        `Downloading cache from s3 to ${archivePath}. bucket: ${bucket}, root: ${root}, object: ${obj.name}`,
+        `Downloading cache from s3 to ${archivePath}. bucket: ${bucket}, object: ${obj.name}`,
       );
-      let objectPath = root ? `${root}/${obj.name}` : obj.name;
-      await mc.fGetObject(bucket, objectPath, archivePath);
+      await mc.fGetObject(bucket, obj.name, archivePath);
 
       if (core.isDebug()) {
         await listTar(archivePath, compressionMethod);
