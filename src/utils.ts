@@ -294,6 +294,7 @@ export async function saveCache(standalone: boolean) {
 
       await upload.done();
 
+      await utils.unlinkFile(archivePath);
       core.info("Cache saved to s3 successfully");
     } catch (e) {
       if (useFallback) {

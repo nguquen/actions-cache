@@ -78,6 +78,7 @@ async function restoreCache() {
       await extractTar(archivePath, compressionMethod);
       setCacheHitOutput(matchingKey === key);
       setCacheSizeOutput(obj.size);
+      await utils.unlinkFile(archivePath);
       core.info("Cache restored from s3 successfully");
     } catch (e) {
       core.info("Restore s3 cache failed: " + e.message);

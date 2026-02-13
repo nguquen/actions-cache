@@ -144880,6 +144880,7 @@ function restoreCache() {
                 yield (0, tar_1.extractTar)(archivePath, compressionMethod);
                 (0, utils_1.setCacheHitOutput)(matchingKey === key);
                 (0, utils_1.setCacheSizeOutput)(obj.size);
+                yield utils.unlinkFile(archivePath);
                 core.info("Cache restored from s3 successfully");
             }
             catch (e) {
@@ -145199,6 +145200,7 @@ function saveCache(standalone) {
                     leavePartsOnError: false,
                 });
                 yield upload.done();
+                yield utils.unlinkFile(archivePath);
                 core.info("Cache saved to s3 successfully");
             }
             catch (e) {

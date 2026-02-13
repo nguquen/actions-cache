@@ -145125,6 +145125,7 @@ function saveCache(standalone) {
                     leavePartsOnError: false,
                 });
                 yield upload.done();
+                yield utils.unlinkFile(archivePath);
                 core.info("Cache saved to s3 successfully");
             }
             catch (e) {
